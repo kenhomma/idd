@@ -21,7 +21,8 @@ GitHub の画面だけで回すための、再利用ワークフロー・プロ�
 scripts/
   reply.mjs        Issue に返事を書く唯一の入口（状況行と印を付け、ラベルを動かす）
   verify-moved.mjs 「引き金の時刻以降に返事が増えたか」で合否
-  watch.mjs / pr-open.mjs / released.mjs / build-site.mjs / setup.mjs / smoke.mjs
+  tsuushi.mjs      通し確認（1件を自動で最後まで通して、各段階の秒数と合否を出す）
+  watch.mjs / pr-open.mjs / released.mjs / build-site.mjs / setup.mjs
 prompts/           plan.md / feedback.md / implement.md（エージェントへの指示）
 templates/caller/  他のプロジェクトに置く呼び出し（idd.yml / idd-watch.yml）
 demo/              練習用の静的ページ
@@ -38,7 +39,7 @@ vocab/glossary.md  用語対訳
 4. `.github/ISSUE_TEMPLATE/`・`CONTRIBUTING.md`・`docs/ops/ISSUE-FLOW.md` を写して埋める
 5. `node scripts/setup.mjs --repo owner/repo` でラベルを作り、足りないものを見る
 6. `main` を Ruleset で守る（PR必須・更新は管理者のみ）。**Actions に PR 作成を許可する**（Settings → Actions → Workflow permissions → Allow GitHub Actions to create and approve pull requests。既定はオフで、`反映OK` が黙って失敗する）
-7. **`node scripts/smoke.mjs --repo owner/repo` で1件通す。** 通るまで展開しない
+7. **`node scripts/tsuushi.mjs --repo owner/repo` で1件通す。** 通るまで展開しない
 
 ## 状態
 

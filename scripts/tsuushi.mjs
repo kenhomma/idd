@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-// smoke.mjs — 「1件通す」を自動でやる。テストIssueを立て、受け取り→対応案→注文→改訂 まで待って計る
-//   node smoke.mjs [--repo owner/name] [--full] [--keep]
+// tsuushi.mjs — 「1件通す」（通し確認）を自動でやる。テスト用の依頼を立て、
+//   受け取り→対応案→注文→改訂→着手OK→直しました→確認用ページ まで待って、各段階の秒数と合否を出す。
+//   英語では smoke test と呼ぶが、現場の2人にも Issue のタイトルが見えるので日本語にした（2026-09-11 オーナー決定）。
+//   node tsuushi.mjs [--repo owner/name] [--full] [--keep]
 //     --full : 着手OK を付けて 実装→「直しました」→確認URL の追記→URLが200 まで確かめる（承認者で実行すること）
 //     --keep : 終わってもIssueを閉じない
 //   通るまで他のリポへ展開しない（規約）。
@@ -33,8 +35,8 @@ const has = (n, kind, after) => () => {
 
 // 1. 起票
 const body = ['どのページ: https://kenhomma.github.io/idd/', '',
-  '見出しの「ようこそ」を「こんにちは」に変えてください。', '', '（これは smoke テストの依頼です。自動で閉じます）'].join('\n');
-const issueUrl = gh(['issue', 'create', '-R', R, '--title', '[smoke] 見出しの文言を変えたい', '--label', LABELS.request, '--body', body]).trim();
+  '見出しの「ようこそ」を「こんにちは」に変えてください。', '', '（これは通し確認の依頼です。自動で閉じます）'].join('\n');
+const issueUrl = gh(['issue', 'create', '-R', R, '--title', '[通し確認] 見出しの文言を変えたい', '--label', LABELS.request, '--body', body]).trim();
 const n = parseInt(issueUrl.split('/').pop(), 10);
 log(`起票 #${n} ${issueUrl}`);
 
@@ -87,7 +89,7 @@ for (const [k, v] of results) console.log(`| ${k} | ${v} |`);
 const failed = results.some(([, v]) => v.startsWith('❌'));
 
 if (!KEEP) {
-  gh(['issue', 'comment', String(n), '-R', R, '--body', `smoke テスト${failed ? 'は途中で止まりました' : '完了'}。このIssueは自動で閉じます。<!--idd:smoke-->`]);
+  gh(['issue', 'comment', String(n), '-R', R, '--body', `通し確認${failed ? 'は途中で止まりました' : 'が終わりました'}。このIssueは自動で閉じます。<!--idd:tsuushi-->`]);
   gh(['issue', 'close', String(n), '-R', R]);
   try { sh('git', ['push', 'origin', '--delete', `issue-${n}`]); log(`ブランチ issue-${n} を消した`); } catch {}
   log(`#${n} を閉じた`);
