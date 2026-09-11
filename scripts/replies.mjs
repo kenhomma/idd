@@ -69,7 +69,7 @@ const MOVES = {
   guard: { remove: [LABELS.approved] },
   'guard-merge': { remove: [LABELS.mergeOk] },
   'pr-missing': { remove: [LABELS.mergeOk] },
-  released: { add: [LABELS.released], remove: [LABELS.mergeOk, LABELS.review] },
+  released: { add: [LABELS.released], remove: [LABELS.mergeOk, LABELS.review, LABELS.planned, LABELS.working, LABELS.approved] },
 };
 
 // 印を付けない種類（返事ではなく合図）
