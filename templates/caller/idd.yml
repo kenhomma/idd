@@ -34,7 +34,7 @@ jobs:
     if: always() && needs.issue.outputs.branch != ''
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write     # 画面写真を idd-previews ブランチに置くため
       issues: write
     steps:
       - uses: actions/checkout@v4
@@ -44,6 +44,12 @@ jobs:
           IDD_REPO: ${{ github.repository }}
           IDD_APPROVERS: ${{ vars.IDD_APPROVERS }}
         run: node .idd/scripts/reply.mjs append-url --issue "${{ needs.issue.outputs.issue }}" --url "https://<project>-git-${{ needs.issue.outputs.branch }}-<team>.vercel.app"
+      # 画面写真（スマホ 375 / PC 1440）を同じコメントに貼る。プレビューは常に付ける
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          IDD_REPO: ${{ github.repository }}
+          IDD_APPROVERS: ${{ vars.IDD_APPROVERS }}
+        run: node .idd/scripts/shots.mjs --issue "${{ needs.issue.outputs.issue }}" --url "https://<project>-git-${{ needs.issue.outputs.branch }}-<team>.vercel.app"
   # 例2: 独自の配信（Shopify テーマなど）→ 自前の workflow_call を needs: issue で呼び、その後に append-url
 
   pr-open:

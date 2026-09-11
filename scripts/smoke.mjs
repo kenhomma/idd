@@ -41,6 +41,13 @@ log(`起票 #${n} ${issueUrl}`);
 // 2. 受け取り → 対応案
 await waitFor('受け取り（ack）', has(n, 'ack'), 120);
 const plan = await waitFor('対応案（plan）', has(n, 'plan'), 8 * 60);
+if (plan) {
+  const purl = await waitFor('対応案の確認用ページ（見る場所）', () => {
+    const c = listComments(n).find((x) => ['plan', 'revise'].includes(kindOf(x.body)));
+    return c?.body.match(/\*\*見る場所\*\*:\s*(https?:\/\/\S+)/)?.[1] || null;
+  }, 6 * 60);
+  if (purl) await waitFor('対応案の画面写真', () => (listComments(n).some((x) => ['plan', 'revise'].includes(kindOf(x.body)) && x.body.includes('**画面写真**')) ? 'ok' : null), 4 * 60);
+}
 
 // 3. 注文 → 改訂案 or 対応不要 など
 if (plan) {
