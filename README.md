@@ -37,7 +37,7 @@ vocab/glossary.md  用語対訳
 3. `templates/caller/idd.yml` と `idd-watch.yml` を `.github/workflows/` に置き、確認用ページの出し方を書き換える
 4. `.github/ISSUE_TEMPLATE/`・`CONTRIBUTING.md`・`docs/ops/ISSUE-FLOW.md` を写して埋める
 5. `node scripts/setup.mjs --repo owner/repo` でラベルを作り、足りないものを見る
-6. `main` を Ruleset で守る（PR必須・更新は管理者のみ）
+6. `main` を Ruleset で守る（PR必須・更新は管理者のみ）。**Actions に PR 作成を許可する**（Settings → Actions → Workflow permissions → Allow GitHub Actions to create and approve pull requests。既定はオフで、`反映OK` が黙って失敗する）
 7. **`node scripts/smoke.mjs --repo owner/repo` で1件通す。** 通るまで展開しない
 
 ## 状態

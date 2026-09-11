@@ -20,6 +20,9 @@ check(!!v('IDD_APPROVERS'), `Variable IDD_APPROVERS = ${v('IDD_APPROVERS') || '�
 check(true, `Variable IDD_MEMBERS = ${v('IDD_MEMBERS') || '（無し＝write権限者全員が反映OKを付けられる）'}`);
 const secrets = ghJson(['secret', 'list', '-R', R, '--json', 'name']).map((s) => s.name);
 check(secrets.includes('CLAUDE_CODE_OAUTH_TOKEN'), 'Secret CLAUDE_CODE_OAUTH_TOKEN', "claude setup-token → printf '%s' '<token>' | gh secret set CLAUDE_CODE_OAUTH_TOKEN -R " + R);
+let wf = {};
+try { wf = ghJson(['api', `repos/${R}/actions/permissions/workflow`]); } catch {}
+check(!!wf.can_approve_pull_request_reviews, 'Actions が PR を作れる（Workflow permissions）', 'gh api -X PUT repos/' + R + '/actions/permissions/workflow -f default_workflow_permissions=read -F can_approve_pull_request_reviews=true');
 let rulesets = [];
 try { rulesets = ghJson(['api', `repos/${R}/rulesets`]).map((r) => r.name); } catch {}
 check(rulesets.length > 0, `Ruleset: ${rulesets.join(', ') || '（無し）'}`, 'main を守る Ruleset（PR必須・更新は管理者のみ）');

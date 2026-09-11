@@ -35,6 +35,7 @@ jobs:
           IDD_REPO: ${{ github.repository }}
           IDD_APPROVERS: ${{ inputs.approvers }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: >-
           node .idd/scripts/pr-open.mjs --issue "${{ github.event.issue.number }}"
           --sender "${{ github.event.sender.login }}" --members "${{ inputs.members }}" --base "${{ inputs.base }}"

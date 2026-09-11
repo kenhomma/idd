@@ -45,7 +45,16 @@ if (!prUrl) {
     `Refs #${issue}`, '',
     '🤖 Generated with [Claude Code](https://claude.com/claude-code)',
   ].join('\n');
-  prUrl = gh(['pr', 'create', '-R', repo(), '--base', base, '--head', br, '--title', `${title} (#${issue})`, '--body-file', '-'], { input: body }).trim().split('\n').pop();
+  try {
+    prUrl = gh(['pr', 'create', '-R', repo(), '--base', base, '--head', br, '--title', `${title} (#${issue})`, '--body-file', '-'], { input: body }).trim().split('\n').pop();
+  } catch (e) {
+    // 典型: 「GitHub Actions is not permitted to create or approve pull requests」
+    //   → リポジトリ設定 Actions → Workflow permissions →「Allow GitHub Actions to create and approve pull requests」
+    const reason = (e.stderr || e.message || '').split('\n').find((l) => l.includes('pull request')) || e.message.split('\n')[0];
+    send('pr-failed', issue, { reason, runUrl: process.env.RUN_URL || '' });
+    console.error(`PR 作成に失敗: ${reason}`);
+    process.exit(1);
+  }
 }
 
 // 5. Issue に知らせる

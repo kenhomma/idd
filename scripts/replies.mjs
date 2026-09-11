@@ -44,7 +44,7 @@ const MOVES = {
 };
 
 // 印を付けない種類（返事ではなく合図）
-const NO_MARK = new Set(['ack', 'stopped', 'nudge']);
+const NO_MARK = new Set(['ack', 'stopped', 'nudge', 'pr-failed']);
 
 export function compose(kind, o = {}) {
   const A = mentions(approvers());
@@ -74,6 +74,11 @@ export function compose(kind, o = {}) {
       break;
     case 'pr-missing':
       lines = [HEAD, '', '作業中の版がまだありません。「直しました」の返事が届いてから「反映OK」を付けてください。ラベルは一旦外しました。'];
+      break;
+    case 'pr-failed':
+      lines = ['⚠️ **反映の申請を自動で出せませんでした。**', '',
+        `代表者 ${A} が引き継ぎます（理由: ${o.reason || '不明'}）。`,
+        o.runUrl ? `実行ログ: ${o.runUrl}` : ''];
       break;
     default:
       lines = [HEAD, ...status(kind, o), '', (o.body || '').trim()];
