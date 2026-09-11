@@ -1,32 +1,61 @@
 // replies.mjs — 依頼者に見える文面は全部ここ。ワークフローもエージェントもこの send() を通す。
-//   先頭: 署名＋状況行（いま／次に動く人／あなたがすること／見る場所）
+//   先頭: 署名＋状況の行（いま／次に動く人／見る場所／あなたがすること）＋区切り線
 //   末尾: <!--idd:種類--><!--cc-->   ← 印はここで付ける。モデルに付けさせない
-//   ack / stopped / nudge には <!--cc--> を付けない（返事ではなく合図。付けると未応答の検知から消える）
-import { MARK, LABELS, approvers, mentions, postComment, listComments, editComment, setLabels, kindOf } from './lib.mjs';
+//   ack / stopped / nudge / pr-failed には <!--cc--> を付けない（返事ではなく合図。付けると未応答の検知から消える）
+//
+// ■ 状況の行に引用記法（`>`）を使わない（2026-09-11 オーナー指摘）
+//   > これはどういう意味なの？引用でもないような。
+//   GitHub には枠を作る簡単な書き方が無いので `>` を囲みとして流用するのが慣例だが、
+//   **引用していないのに引用の見た目になる。** 太字の行と区切り線（---）で分ける。
+//   ⚠ Issue のコメントでは改行がそのまま行送りになる（GFM の hard line break）。
+//     README など通常の Markdown ファイルでは行が繋がるので、この形は Issue 専用。
+//   ⚠ 区切り線の**前に空行**を置くこと。直前が文字だと `---` が見出しの下線と解釈される。
+//
+// ■ プレビューは常に付ける（2026-09-11 オーナー指示）
+//   「プレビューがないとサイズ感とかレイアウトとかよいのか誰も判断できない」。
+//   対応案（plan/revise）の段階で作業中の版があれば「見る場所」の行を出し、あとから URL と画面写真を追記する。
+import { MARK, LABELS, sh, approvers, mentions, postComment, listComments, editComment, setLabels, kindOf } from './lib.mjs';
 
-export const HEAD = '> 🤖 **Claude（AI）からの返信です**';
-export const PENDING_URL = '> **見る場所**: 準備中です。1〜2分後にこのコメントに追記されます';
+export const HEAD = '🤖 **Claude（AI）からの返信です**';
+export const RULE = '---';
+export const PENDING_URL = '**見る場所**: 準備中です。1〜2分後にこのコメントに追記されます';
+export const PENDING_PREVIEW = '**見る場所**: 作業中の版を作りました。1〜2分後に確認用ページのURLと画面写真をこのコメントに追記します';
+const PREVIEW_KINDS = ['done', 'revise', 'plan'];
+
+function branchExists(issue) {
+  try { return sh('git', ['ls-remote', '--heads', 'origin', `issue-${issue}`]).trim() !== ''; } catch { return false; }
+}
+function placeLine(o) {
+  if (o.url) return `**見る場所**: ${o.url}`;
+  if (o.preview) return PENDING_PREVIEW;
+  return '';
+}
 
 function status(kind, o) {
   const A = mentions(approvers());
-  const AGAIN = '> **あなたがすること**: 内容を読んで、違うところがあればそのままコメントしてください（@claude は不要です）';
+  const AGAIN = '**あなたがすること**: 内容を読んで、違うところがあればそのままコメントしてください（@claude は不要です）';
   switch (kind) {
-    case 'plan': return [`> **いま**: 対応案を出しました　**次に動く人**: 承認者 ${A}（「着手OK」のラベルを付けます）`, AGAIN];
-    case 'revise': return [`> **いま**: 対応案を直しました　**次に動く人**: 承認者 ${A}（「着手OK」のラベルを付けます）`, AGAIN];
-    case 'working': return ['> **いま**: 作業を始めました　**次に動く人**: Claude（作業中）',
-      '> **あなたがすること**: 待っていてください。終わると確認用ページのURLがここに届きます'];
-    case 'done': return ['> **いま**: 直しました　**次に動く人**: あなた（確認用ページを見ます）',
-      o.url ? `> **見る場所**: ${o.url}` : PENDING_URL,
-      '> **あなたがすること**: 見て、よければ「反映OK」のラベルを付けてください。違うところがあれば、そのままコメントしてください'];
-    case 'local': return [`> **いま**: この作業は代表者の手元で行います　**次に動く人**: ${A}`,
-      '> **あなたがすること**: 待っていてください。終わるとここに報告が届きます'];
-    case 'noop': return ['> **いま**: 確認しました。いまは対応が要らないと判断しました　**次に動く人**: —',
-      '> **あなたがすること**: 違っていれば、そのままコメントしてください'];
-    case 'pr': return [`> **いま**: 反映の申請を出しました　**次に動く人**: 管理者 ${A}（反映します）`,
-      '> **あなたがすること**: 待っていてください。反映されるとここに届きます'];
-    case 'released': return ['> **いま**: 反映されました　**次に動く人**: あなた（直ったか確認します）',
-      `> **見る場所**: ${o.url || '（本番URLが未設定です）'}`,
-      '> **あなたがすること**: 直っていればこのIssueを閉じてください。違うところがあれば、そのままコメントしてください'];
+    case 'plan': return ['**いま**: 対応案を出しました',
+      `**次に動く人**: 承認者 ${A}（「着手OK」のラベルを付けます）`, placeLine(o), AGAIN];
+    case 'revise': return ['**いま**: 対応案を直しました',
+      `**次に動く人**: 承認者 ${A}（「着手OK」のラベルを付けます）`, placeLine(o), AGAIN];
+    case 'working': return ['**いま**: 作業を始めました', '**次に動く人**: Claude（作業中）',
+      '**あなたがすること**: 待っていてください。終わると確認用ページのURLがここに届きます'];
+    case 'done': return ['**いま**: 直しました', '**次に動く人**: あなた（確認用ページを見ます）',
+      o.url ? `**見る場所**: ${o.url}` : PENDING_URL,
+      '**あなたがすること**: 見て、よければ「反映OK」のラベルを付けてください。違うところがあれば、そのままコメントしてください'];
+    case 'local': return ['**いま**: この作業は代表者の手元で行います', `**次に動く人**: ${A}`,
+      '**あなたがすること**: 待っていてください。終わるとここに報告が届きます'];
+    case 'noted': return ['**いま**: 確認しました',
+      `**次に動く人**: ${o.next || `承認者 ${A}（「着手OK」のラベルを付けます）`}`,
+      '**あなたがすること**: 特にありません。違っていれば、そのままコメントしてください'];
+    case 'noop': return ['**いま**: 確認しました。このIssueで新しく直すことはありません', '**次に動く人**: —',
+      '**あなたがすること**: 違っていれば、そのままコメントしてください'];
+    case 'pr': return ['**いま**: 反映の申請を出しました', `**次に動く人**: 管理者 ${A}（反映します）`,
+      '**あなたがすること**: 待っていてください。反映されるとここに届きます'];
+    case 'released': return ['**いま**: 反映されました', '**次に動く人**: あなた（直ったか確認します）',
+      `**見る場所**: ${o.url || '（本番URLが未設定です）'}`,
+      '**あなたがすること**: 直っていればこのIssueを閉じてください。違うところがあれば、そのままコメントしてください'];
     default: return [];
   }
 }
@@ -44,7 +73,7 @@ const MOVES = {
 };
 
 // 印を付けない種類（返事ではなく合図）
-const NO_MARK = new Set(['ack', 'stopped', 'nudge']);
+const NO_MARK = new Set(['ack', 'stopped', 'nudge', 'pr-failed']);
 
 export function compose(kind, o = {}) {
   const A = mentions(approvers());
@@ -75,31 +104,59 @@ export function compose(kind, o = {}) {
     case 'pr-missing':
       lines = [HEAD, '', '作業中の版がまだありません。「直しました」の返事が届いてから「反映OK」を付けてください。ラベルは一旦外しました。'];
       break;
-    default:
-      lines = [HEAD, ...status(kind, o), '', (o.body || '').trim()];
+    case 'pr-failed':
+      lines = ['⚠️ **反映の申請を自動で出せませんでした。**', '',
+        `代表者 ${A} が引き継ぎます（理由: ${o.reason || '不明'}）。`,
+        o.runUrl ? `実行ログ: ${o.runUrl}` : ''];
+      break;
+    default: {
+      const st = status(kind, o).filter(Boolean);
+      const body = (o.body || '').trim();
+      // ⚠ 区切り線の前に必ず空行（直前が文字だと `---` が見出しの下線になる）
+      lines = st.length ? [HEAD, '', ...st, '', RULE, '', body] : [HEAD, '', body];
+    }
   }
   const tail = NO_MARK.has(kind) ? `<!--idd:${kind}-->` : `<!--idd:${kind}-->${MARK}`;
   return [...lines, '', tail].join('\n').replace(/\n{3,}/g, '\n\n');
 }
 
 export function send(kind, issue, o = {}) {
+  if (['plan', 'revise'].includes(kind) && !o.url && o.preview === undefined) o = { ...o, preview: branchExists(issue) };
   const url = postComment(issue, compose(kind, o));
   const mv = MOVES[kind];
   if (mv) setLabels(issue, mv);
   return url;
 }
 
-// 「直しました」に確認URLを追記する。別コメントに分けない（依頼者が探さなくて済むように）
+function latestPreviewComment(issue) {
+  return [...listComments(issue)].reverse().find((c) => PREVIEW_KINDS.includes(kindOf(c.body)));
+}
+
+// 確認URLを最新の返事（直しました／対応案）に追記する。別コメントに分けない（依頼者が探さなくて済むように）
 export function appendUrl(issue, url) {
-  const comments = listComments(issue);
-  const target = [...comments].reverse().find((c) => kindOf(c.body) === 'done');
-  if (!target) {
-    return postComment(issue, compose('done-url', { body: `**見る場所**: ${url}` }));
-  }
+  const target = latestPreviewComment(issue);
+  if (!target) return postComment(issue, compose('done-url', { body: `**見る場所**: ${url}` }));
   if (target.body.includes(url)) return target.url;
-  const body = target.body.includes(PENDING_URL)
-    ? target.body.replace(PENDING_URL, `> **見る場所**: ${url}`)
-    : target.body.replace(MARK, `\n**見る場所**: ${url}\n\n${MARK}`);
+  const line = `**見る場所**: ${url}`;
+  let body;
+  if (target.body.includes(PENDING_URL)) body = target.body.replace(PENDING_URL, line);
+  else if (target.body.includes(PENDING_PREVIEW)) body = target.body.replace(PENDING_PREVIEW, line);
+  // 「次に動く人」の直後に入れる（無ければ署名の直後）
+  else if (/^\*\*次に動く人\*\*: .*$/m.test(target.body)) body = target.body.replace(/^(\*\*次に動く人\*\*: .*)$/m, `$1\n${line}`);
+  else body = target.body.replace(`${HEAD}\n`, `${HEAD}\n${line}\n`);
   editComment(target.id, body);
+  return target.url;
+}
+
+// 画面写真を最新の返事に貼る。shots = [{ width, url }]
+export function appendShots(issue, shots) {
+  const target = latestPreviewComment(issue);
+  if (!target || !shots.length) return null;
+  if (target.body.includes(shots[0].url)) return target.url;
+  const imgs = shots.map((s) => `<img src="${s.url}" alt="${s.width}px" width="${s.width < 600 ? 260 : 620}">`).join(' ');
+  const block = `**画面写真**（${shots.map((s) => `${s.width < 600 ? 'スマホ' : 'PC'} ${s.width}px`).join(' ／ ')}）\n\n${imgs}\n\n`;
+  // 撮り直したときは古い写真の塊を置き換える（同じコメントに2組並べない）
+  const stripped = target.body.replace(/\*\*画面写真\*\*（[^\n]*）\n\n(?:<img [^\n]*>\s*)+\n\n/g, '');
+  editComment(target.id, stripped.replace(`<!--idd:${kindOf(target.body)}-->`, `${block}<!--idd:${kindOf(target.body)}-->`));
   return target.url;
 }

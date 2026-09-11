@@ -44,7 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
-      contents: read
+      contents: write     # 画面写真を idd-previews ブランチに置くため
       issues: write
     steps:
       - uses: actions/checkout@v4
@@ -54,6 +54,12 @@ jobs:
           IDD_REPO: ${{ github.repository }}
           IDD_APPROVERS: ${{ vars.IDD_APPROVERS }}
         run: node scripts/reply.mjs append-url --issue "${{ needs.issue.outputs.issue }}" --url "https://kenhomma.github.io/idd/preview/${{ needs.issue.outputs.branch }}/"
+      # 画面写真（スマホ 375 / PC 1440）を同じコメントに貼る。プレビューは常に付ける
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          IDD_REPO: ${{ github.repository }}
+          IDD_APPROVERS: ${{ vars.IDD_APPROVERS }}
+        run: node scripts/shots.mjs --issue "${{ needs.issue.outputs.issue }}" --url "https://kenhomma.github.io/idd/preview/${{ needs.issue.outputs.branch }}/"
 
   pr-open:
     if: github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == '反映OK'

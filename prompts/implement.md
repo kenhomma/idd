@@ -6,9 +6,11 @@ Issue #{{ISSUE_NUMBER}}「{{ISSUE_TITLE}}」が承認されました（着手OK�
 
 ## 手順
 1. `docs/ops/ISSUE-FLOW.md` と `CLAUDE.md` があれば読む（触ってよい範囲・触ってはいけない範囲）
-2. `git checkout -b issue-{{ISSUE_NUMBER}} origin/main`（既にあれば `git checkout issue-{{ISSUE_NUMBER}}`）
-3. 対応案どおりに直す。対応案に無い変更を足さない
-4. コミットして `git push -u origin issue-{{ISSUE_NUMBER}}`
+2. 作業中の版 `issue-{{ISSUE_NUMBER}}` が**既にあれば**（対応案の段階で作ってあることが多い）`git checkout issue-{{ISSUE_NUMBER}}` して、
+   確定した対応案（最新の対応案・選択された案）と中身が一致しているか確かめる。一致していれば直さずに 5 へ。
+   無ければ `git checkout -b issue-{{ISSUE_NUMBER}} origin/main`
+3. 足りない分だけ、対応案どおりに直す。対応案に無い変更を足さない
+4. 変更があればコミットして `git push -u origin issue-{{ISSUE_NUMBER}}`
 5. 直したもの・見るポイント（3つまで）を `/tmp/reply.md` に書き、次のコマンドで投稿する
    ```
    node .idd/scripts/reply.mjs done --issue {{ISSUE_NUMBER}} --body-file /tmp/reply.md
