@@ -1,0 +1,39 @@
+# pages.yml — demo/ を GitHub Pages へ。ルート = main、/preview/issue-<n>/ = 各作業ブランチ
+#   push で動くのは main だけ。作業ブランチの push はエンジン（GITHUB_TOKEN）なので on: push は発火しない。
+#   だから idd.yml が workflow_call でここを直接呼ぶ。
+name: pages
+on:
+  push:
+    branches: [main]
+    paths: [demo/**, scripts/build-site.mjs, .github/workflows/pages.yml]
+  workflow_call:
+    inputs:
+      branch: { type: string, default: "" }
+  workflow_dispatch: {}
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main, fetch-depth: 0 }
+      - run: node scripts/build-site.mjs
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: _site }
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: github-pages
+      url: ${{ steps.d.outputs.page_url }}
+    steps:
+      - id: d
+        uses: actions/deploy-pages@v4

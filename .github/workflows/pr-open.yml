@@ -1,0 +1,40 @@
+# pr-open.yml — 「反映OK」ラベルで反映の申請（PR）を作る。依頼者が見てOKを出してから、初めて管理者の列に並ぶ。
+name: idd-pr-open
+on:
+  workflow_call:
+    inputs:
+      members:
+        description: 反映OKを付けられる人（カンマ区切り。空なら write 権限者全員）
+        type: string
+        default: ""
+      base:
+        type: string
+        default: main
+      engine_repo: { type: string, default: kenhomma/idd }
+      engine_ref: { type: string, default: main }
+      approvers:
+        description: 管理者（Issue の返事で「反映します」の相手として出す）
+        type: string
+        default: ""
+jobs:
+  open:
+    if: github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == '反映OK'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/checkout@v4
+        with: { repository: "${{ inputs.engine_repo }}", ref: "${{ inputs.engine_ref }}", path: .idd, fetch-depth: 1 }
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          IDD_REPO: ${{ github.repository }}
+          IDD_APPROVERS: ${{ inputs.approvers }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+        run: >-
+          node .idd/scripts/pr-open.mjs --issue "${{ github.event.issue.number }}"
+          --sender "${{ github.event.sender.login }}" --members "${{ inputs.members }}" --base "${{ inputs.base }}"

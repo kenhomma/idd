@@ -1,0 +1,319 @@
+# issue.yml — Issue駆動のAI開発（IDD）エンジン本体。各プロジェクトから workflow_call で呼ぶ。
+#
+# ジョブ:      引き金                                   エージェント  必ず終わる形
+#   ack        依頼ラベル付き起票／人のコメント          使わない      「受け取りました」（印なし・≤15秒）
+#   plan       依頼ラベル付き起票                       使う          対応案（印あり）＋対応案あり
+#   guard      承認者以外が 着手OK                      使わない      ラベルを剥がして案内
+#   feedback   人のコメント（承認語だけは除く）          使う          A改訂案 / B直してpush / C要ローカル / D対応不要
+#   implement  承認者が 着手OK                          使う          issue-<n> へ push ＋「直しました」
+#   mention    @claude                                  使う          任意起動（依頼者向けの案内では使わない）
+#
+# 守っていること（全部、実測で事故ってから決めたもの）:
+#   - 直列化（concurrency）はエージェントが動くジョブだけ。軽いジョブに掛けると3つ目のイベントで待機中のランが黙って消える
+#   - 返事は scripts/reply.mjs だけが書く。印 <!--cc--> はそこで付く（モデルに付けさせない）
+#   - 合否は exit code ではなく「引き金の時刻以降に印付きの返事が増えたか」（verify-moved.mjs）
+#   - Issue本文・コメントは env 経由でプロンプトに埋め込む（シェルに展開しない・外部からのデータ）
+#   - checkout するジョブは contents: read を落とさない
+name: idd-issue
+
+on:
+  workflow_call:
+    inputs:
+      approvers:
+        description: 着手OKを付けられる人（GitHubログイン名・カンマ区切り）
+        type: string
+        required: true
+      request_label:
+        description: 起票時に付くラベル（これが付くと対応案が動く）
+        type: string
+        default: 依頼
+      engine_repo:
+        description: エンジンのリポジトリ
+        type: string
+        default: kenhomma/idd
+      engine_ref:
+        description: エンジンの版（タグ・ブランチ）
+        type: string
+        default: main
+      extra_allowed_tools:
+        description: feedback / implement に追加で許すツール（例 "Bash(npm:*)"）
+        type: string
+        default: ""
+      model:
+        description: 使うモデル（空なら既定）
+        type: string
+        default: ""
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+    outputs:
+      issue:
+        value: ${{ github.event.issue.number }}
+      branch:
+        description: push された作業ブランチ（無ければ空）
+        value: ${{ jobs.implement.outputs.branch || jobs.feedback.outputs.branch }}
+
+jobs:
+  # ── 受け取り。エージェントを介さないので、トークンが死んでいても必ず返る ──
+  ack:
+    if: >-
+      (github.event_name == 'issues' && github.event.action == 'opened'
+        && contains(join(github.event.issue.labels.*.name, ','), inputs.request_label))
+      || (github.event_name == 'issue_comment' && !github.event.issue.pull_request
+        && github.event.comment.user.type != 'Bot'
+        && !contains(github.event.comment.body, '<!--cc-->')
+        && !contains(github.event.comment.body, '@claude'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with: { repository: "${{ inputs.engine_repo }}", ref: "${{ inputs.engine_ref }}", path: .idd, fetch-depth: 1 }
+      - name: 受け取りを返す
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IDD_REPO: ${{ github.repository }}
+          IDD_APPROVERS: ${{ inputs.approvers }}
+          BODY: ${{ github.event.comment.body }}
+          EVENT: ${{ github.event_name == 'issues' && 'opened' || 'comment' }}
+        run: node .idd/scripts/reply.mjs ack --issue "${{ github.event.issue.number }}" --event "$EVENT" --body-env BODY
+
+  # ── 対応案 ──
+  plan:
+    if: >-
+      github.event_name == 'issues' && github.event.action == 'opened'
+      && contains(join(github.event.issue.labels.*.name, ','), inputs.request_label)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+      id-token: write
+    concurrency:
+      group: idd-agent-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 1 }
+      - uses: actions/checkout@v4
+        with: { repository: "${{ inputs.engine_repo }}", ref: "${{ inputs.engine_ref }}", path: .idd, fetch-depth: 1 }
+      - name: プロンプトを組む
+        id: p
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+        run: |
+          echo .idd >> .git/info/exclude
+          node .idd/scripts/render-prompt.mjs .idd/prompts/plan.md > /tmp/idd-prompt.md
+          { echo 'prompt<<IDD_PROMPT_END'; cat /tmp/idd-prompt.md; echo; echo 'IDD_PROMPT_END'; } >> "$GITHUB_OUTPUT"
+      - uses: anthropics/claude-code-action@v1
+        env:
+          IDD_REPO: ${{ github.repository }}
+          IDD_APPROVERS: ${{ inputs.approvers }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: ${{ steps.p.outputs.prompt }}
+          # 対応案の段階は読み取りと「返事コマンド」だけ。書き込み系のツールは渡さない
+          claude_args: >-
+            --max-turns 30 ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
+            --allowedTools "Bash(node .idd/scripts/reply.mjs:*)" "Bash(gh issue view:*)" "Bash(ls:*)" "Bash(cat:*)"
+      - name: Issueが動いたか確かめる
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IDD_REPO: ${{ github.repository }}
+          IDD_APPROVERS: ${{ inputs.approvers }}
+        run: >-
+          node .idd/scripts/verify-moved.mjs --issue "${{ github.event.issue.number }}"
+          --since "${{ github.event.issue.created_at }}" --kinds plan,local,noop
+          --notify --what "起票を受けて対応案を作る処理"
+          --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+  # ── 承認者以外が 着手OK を付けたら剥がす ──
+  guard:
+    if: >-
+      github.event_name == 'issues' && github.event.action == 'labeled'
+      && github.event.label.name == '着手OK'
+      && !contains(format(',{0},', inputs.approvers), format(',{0},', github.event.sender.login))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with: { repository: "${{ inputs.engine_repo }}", ref: "${{ inputs.engine_ref }}", path: .idd, fetch-depth: 1 }
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          IDD_REPO: ${{ github.repository }}
+          IDD_APPROVERS: ${{ inputs.approvers }}
+        run: node .idd/scripts/reply.mjs guard --issue "${{ github.event.issue.number }}" --sender "${{ github.event.sender.login }}"
+
+  # ── 人のコメントに応える（承認語だけのコメントは除く） ──
+  feedback:
+    if: >-
+      github.event_name == 'issue_comment' && !github.event.issue.pull_request
+      && github.event.comment.user.type != 'Bot'
+      && !contains(github.event.comment.body, '<!--cc-->')
+      && !contains(github.event.comment.body, '@claude')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: read
+      id-token: write
+    concurrency:
+      group: idd-agent-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    outputs:
+      branch: ${{ steps.br.outputs.branch }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/checkout@v4
+        with: { repository: "${{ inputs.engine_repo }}", ref: "${{ inputs.engine_ref }}", path: .idd, fetch-depth: 1 }
+      - name: 承認語だけなら何もしない
+        id: c
+        env:
+          BODY: ${{ github.event.comment.body }}
+        run: node .idd/scripts/classify-comment.mjs
+      - name: 作業場所を整える
+        if: steps.c.outputs.kind == 'request'
+        run: |
+          echo .idd >> .git/info/exclude
+          git config user.name "idd[bot]" && git config user.email "idd-bot@users.noreply.github.com"
+      - name: プロンプトを組む
+        if: steps.c.outputs.kind == 'request'
+        id: p
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
+        run: |
+          node .idd/scripts/render-prompt.mjs .idd/prompts/feedback.md > /tmp/idd-prompt.md
+          { echo 'prompt<<IDD_PROMPT_END'; cat /tmp/idd-prompt.md; echo; echo 'IDD_PROMPT_END'; } >> "$GITHUB_OUTPUT"
+      - uses: anthropics/claude-code-action@v1
+        if: steps.c.outputs.kind == 'request'
+        env:
+          IDD_REPO: ${{ github.repository }}
+          IDD_APPROVERS: ${{ inputs.approvers }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: ${{ steps.p.outputs.prompt }}
+          claude_args: >-
+            --max-turns 60 ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
+            --allowedTools "Bash(node .idd/scripts/reply.mjs:*)" "Bash(gh issue view:*)" "Bash(git:*)" "Bash(ls:*)" "Bash(cat:*)" "Edit" "Write" "MultiEdit" ${{ inputs.extra_allowed_tools }}
+      - name: Issueが動いたか確かめる
+        if: always() && steps.c.outputs.kind == 'request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IDD_REPO: ${{ github.repository }}
+          IDD_APPROVERS: ${{ inputs.approvers }}
+        run: >-
+          node .idd/scripts/verify-moved.mjs --issue "${{ github.event.issue.number }}"
+          --since "${{ github.event.comment.created_at }}" --kinds revise,done,local,noop
+          --notify --what "書き込みを受けて応える処理"
+          --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      - name: 作業ブランチが push されたか
+        id: br
+        if: always() && steps.c.outputs.kind == 'request'
+        run: |
+          BR="issue-${{ github.event.issue.number }}"
+          if git ls-remote --exit-code --heads origin "$BR" >/dev/null 2>&1; then echo "branch=$BR" >> "$GITHUB_OUTPUT"; else echo "branch=" >> "$GITHUB_OUTPUT"; fi
+
+  # ── 承認者が 着手OK を付けたら実装（push まで・PR は作らない） ──
+  implement:
+    if: >-
+      github.event_name == 'issues' && github.event.action == 'labeled'
+      && github.event.label.name == '着手OK'
+      && contains(format(',{0},', inputs.approvers), format(',{0},', github.event.sender.login))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: read
+      id-token: write
+    concurrency:
+      group: idd-agent-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    outputs:
+      branch: ${{ steps.br.outputs.branch }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/checkout@v4
+        with: { repository: "${{ inputs.engine_repo }}", ref: "${{ inputs.engine_ref }}", path: .idd, fetch-depth: 1 }
+      - name: 作業場所を整える
+        run: |
+          echo .idd >> .git/info/exclude
+          git config user.name "idd[bot]" && git config user.email "idd-bot@users.noreply.github.com"
+      - name: 開始時刻を控えて「作業を始めました」を書く
+        id: t0
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IDD_REPO: ${{ github.repository }}
+          IDD_APPROVERS: ${{ inputs.approvers }}
+        run: |
+          echo "started=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          node .idd/scripts/reply.mjs working --issue "${{ github.event.issue.number }}"
+      - name: プロンプトを組む
+        id: p
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+        run: |
+          node .idd/scripts/render-prompt.mjs .idd/prompts/implement.md > /tmp/idd-prompt.md
+          { echo 'prompt<<IDD_PROMPT_END'; cat /tmp/idd-prompt.md; echo; echo 'IDD_PROMPT_END'; } >> "$GITHUB_OUTPUT"
+      - uses: anthropics/claude-code-action@v1
+        env:
+          IDD_REPO: ${{ github.repository }}
+          IDD_APPROVERS: ${{ inputs.approvers }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: ${{ steps.p.outputs.prompt }}
+          claude_args: >-
+            --max-turns 60 ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
+            --allowedTools "Bash(node .idd/scripts/reply.mjs:*)" "Bash(gh issue view:*)" "Bash(git:*)" "Bash(ls:*)" "Bash(cat:*)" "Edit" "Write" "MultiEdit" ${{ inputs.extra_allowed_tools }}
+      - name: Issueが動いたか確かめる
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IDD_REPO: ${{ github.repository }}
+          IDD_APPROVERS: ${{ inputs.approvers }}
+        run: >-
+          node .idd/scripts/verify-moved.mjs --issue "${{ github.event.issue.number }}"
+          --since "${{ steps.t0.outputs.started }}" --kinds done,local
+          --notify --what "承認を受けて作業する処理"
+          --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      - name: 作業ブランチが push されたか
+        id: br
+        if: always()
+        run: |
+          BR="issue-${{ github.event.issue.number }}"
+          if git ls-remote --exit-code --heads origin "$BR" >/dev/null 2>&1; then echo "branch=$BR" >> "$GITHUB_OUTPUT"; else echo "branch=" >> "$GITHUB_OUTPUT"; fi
+
+  # ── @claude で任意起動（開発者向け。依頼者向けの案内では使わない） ──
+  mention:
+    if: github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 1 }
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

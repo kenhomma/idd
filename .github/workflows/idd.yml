@@ -1,0 +1,80 @@
+# idd.yml — このリポ自身でエンジンを使う（ドッグフード）。他のリポに置くときは templates/caller/idd.yml を見る。
+name: idd
+on:
+  issues:
+    types: [opened, labeled]
+  issue_comment:
+    types: [created]
+  pull_request:
+    types: [closed]
+
+jobs:
+  issue:
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/issue.yml
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+      actions: read
+    with:
+      approvers: ${{ vars.IDD_APPROVERS }}
+      engine_repo: ${{ github.repository }}
+      engine_ref: main
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+  # 作業ブランチが push されたら確認用ページを組み直す（検証が赤でも、ブランチがあれば見られるようにする）
+  preview:
+    needs: issue
+    if: always() && needs.issue.outputs.branch != ''
+    uses: ./.github/workflows/pages.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    with:
+      branch: ${{ needs.issue.outputs.branch }}
+
+  # 確認URLを「直しました」と同じコメントに追記する（別コメントに分けない）
+  preview-url:
+    needs: [issue, preview]
+    if: always() && needs.issue.outputs.branch != '' && needs.preview.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 1 }
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          IDD_REPO: ${{ github.repository }}
+          IDD_APPROVERS: ${{ vars.IDD_APPROVERS }}
+        run: node scripts/reply.mjs append-url --issue "${{ needs.issue.outputs.issue }}" --url "https://kenhomma.github.io/idd/preview/${{ needs.issue.outputs.branch }}/"
+
+  pr-open:
+    if: github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == '反映OK'
+    uses: ./.github/workflows/pr-open.yml
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    with:
+      members: ${{ vars.IDD_MEMBERS }}
+      approvers: ${{ vars.IDD_APPROVERS }}
+      engine_repo: ${{ github.repository }}
+
+  released:
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+    uses: ./.github/workflows/after-merge.yml
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    with:
+      production_url: https://kenhomma.github.io/idd/
+      approvers: ${{ vars.IDD_APPROVERS }}
+      engine_repo: ${{ github.repository }}

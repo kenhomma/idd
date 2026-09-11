@@ -1,0 +1,6 @@
+# 入口は1本にする。選択肢があると「どれを選ぶか」で止まる人が出る。
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 はじめての方へ（3分で読めます）
+    url: https://github.com/kenhomma/idd/blob/main/CONTRIBUTING.md
+    about: 何を書けばいいか、出したあと何が起きるか。迷ったらここから。

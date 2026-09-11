@@ -1,0 +1,29 @@
+# after-merge.yml — 反映の申請（PR）がマージされたら、Issue に「反映されました」を書く
+name: idd-after-merge
+on:
+  workflow_call:
+    inputs:
+      production_url:
+        description: 本番のURL（「見る場所」に出す）
+        type: string
+        default: ""
+      engine_repo: { type: string, default: kenhomma/idd }
+      engine_ref: { type: string, default: main }
+      approvers: { type: string, default: "" }
+jobs:
+  released:
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with: { repository: "${{ inputs.engine_repo }}", ref: "${{ inputs.engine_ref }}", path: .idd, fetch-depth: 1 }
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          IDD_REPO: ${{ github.repository }}
+          IDD_APPROVERS: ${{ inputs.approvers }}
+        run: node .idd/scripts/released.mjs --pr "${{ github.event.pull_request.number }}" --url "${{ inputs.production_url }}"

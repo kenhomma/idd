@@ -1,0 +1,29 @@
+# watch.yml — 返事の出ていない依頼を拾って催促する（cron は呼び出し側に置く）
+name: idd-watch
+on:
+  workflow_call:
+    inputs:
+      approvers: { type: string, default: "" }
+      grace_minutes: { type: number, default: 30 }
+      hours: { type: number, default: 72 }
+      engine_repo: { type: string, default: kenhomma/idd }
+      engine_ref: { type: string, default: main }
+concurrency:
+  group: idd-watch
+  cancel-in-progress: false
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with: { repository: "${{ inputs.engine_repo }}", ref: "${{ inputs.engine_ref }}", path: .idd, fetch-depth: 1 }
+      # 未応答があれば exit 1（記録として赤にする）。届くのは Issue に書く催促のほう。赤は誰も見ない
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          IDD_REPO: ${{ github.repository }}
+          IDD_APPROVERS: ${{ inputs.approvers }}
+        run: node .idd/scripts/watch.mjs --hours "${{ inputs.hours }}" --grace "${{ inputs.grace_minutes }}" --notify

@@ -1,0 +1,15 @@
+# idd-watch.yml — 2時間ごとに、返事の出ていない依頼を拾う
+name: idd-watch
+on:
+  schedule:
+    - cron: '17 */2 * * *'
+  workflow_dispatch: {}
+jobs:
+  watch:
+    uses: ./.github/workflows/watch.yml
+    permissions:
+      contents: read
+      issues: write
+    with:
+      approvers: ${{ vars.IDD_APPROVERS }}
+      engine_repo: ${{ github.repository }}

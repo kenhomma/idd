@@ -1,0 +1,88 @@
+#!/usr/bin/env node
+// smoke.mjs — 「1件通す」を自動でやる。テストIssueを立て、受け取り→対応案→注文→改訂 まで待って計る
+//   node smoke.mjs [--repo owner/name] [--full] [--keep]
+//     --full : 着手OK を付けて 実装→「直しました」→確認URL の追記→URLが200 まで確かめる（承認者で実行すること）
+//     --keep : 終わってもIssueを閉じない
+//   通るまで他のリポへ展開しない（規約）。
+import { LABELS, MARK, arg, flag, gh, ghJson, listComments, kindOf, sh } from './lib.mjs';
+
+const R = arg('--repo') || process.env.IDD_REPO || ghJson(['repo', 'view', '--json', 'nameWithOwner']).nameWithOwner;
+process.env.IDD_REPO = R;
+const FULL = flag('--full');
+const KEEP = flag('--keep');
+const t0 = Date.now();
+const log = (s) => console.log(`[${((Date.now() - t0) / 1000).toFixed(0).padStart(4)}s] ${s}`);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const results = [];
+
+async function waitFor(label, pred, timeoutSec, every = 10) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutSec * 1000) {
+    const hit = pred();
+    if (hit) { const sec = ((Date.now() - start) / 1000).toFixed(0); results.push([label, `✅ ${sec}s`]); log(`${label}: OK (${sec}s) ${typeof hit === 'string' ? hit : ''}`); return hit; }
+    await sleep(every * 1000);
+  }
+  results.push([label, `❌ ${timeoutSec}s 待っても来ない`]);
+  log(`${label}: タイムアウト`);
+  return null;
+}
+const has = (n, kind, after) => () => {
+  const c = listComments(n).find((x) => kindOf(x.body) === kind && (!after || x.createdAt > after));
+  return c ? c.url : null;
+};
+
+// 1. 起票
+const body = ['どのページ: https://kenhomma.github.io/idd/', '',
+  '見出しの「ようこそ」を「こんにちは」に変えてください。', '', '（これは smoke テストの依頼です。自動で閉じます）'].join('\n');
+const issueUrl = gh(['issue', 'create', '-R', R, '--title', '[smoke] 見出しの文言を変えたい', '--label', LABELS.request, '--body', body]).trim();
+const n = parseInt(issueUrl.split('/').pop(), 10);
+log(`起票 #${n} ${issueUrl}`);
+
+// 2. 受け取り → 対応案
+await waitFor('受け取り（ack）', has(n, 'ack'), 120);
+const plan = await waitFor('対応案（plan）', has(n, 'plan'), 8 * 60);
+
+// 3. 注文 → 改訂案 or 対応不要 など
+if (plan) {
+  const at = new Date().toISOString();
+  gh(['issue', 'comment', String(n), '-R', R, '--body', '「こんにちは」ではなく「こんにちは！」（感嘆符つき）にしてください。']);
+  log('注文を書いた');
+  await waitFor('受け取り（ack・2回目）', has(n, 'ack', at), 120);
+  await waitFor('注文への返事（revise/done/noop/local）', () => {
+    const c = listComments(n).find((x) => x.createdAt > at && ['revise', 'done', 'noop', 'local'].includes(kindOf(x.body)));
+    return c ? `${kindOf(c.body)} ${c.url}` : null;
+  }, 8 * 60);
+}
+
+// 4. --full: 着手OK → 直しました → 確認URL
+if (FULL && plan) {
+  const at = new Date().toISOString();
+  gh(['issue', 'edit', String(n), '-R', R, '--add-label', LABELS.approved]);
+  log('着手OK を付けた');
+  await waitFor('作業開始（working）', has(n, 'working', at), 3 * 60);
+  const done = await waitFor('直しました（done）', has(n, 'done', at), 15 * 60);
+  if (done) {
+    const url = await waitFor('確認URLの追記', () => {
+      const c = listComments(n).find((x) => kindOf(x.body) === 'done' && x.createdAt > at);
+      return c?.body.match(/\*\*見る場所\*\*:\s*(https?:\/\/\S+)/)?.[1] || null;
+    }, 6 * 60);
+    if (url) {
+      await waitFor('確認URLが 200', () => {
+        try { return sh('curl', ['-s', '-o', '/dev/null', '-w', '%{http_code}', url]).trim() === '200' ? url : null; } catch { return null; }
+      }, 4 * 60, 15);
+    }
+  }
+}
+
+// 5. まとめ
+console.log('\n| 段階 | 結果 |\n|---|---|');
+for (const [k, v] of results) console.log(`| ${k} | ${v} |`);
+const failed = results.some(([, v]) => v.startsWith('❌'));
+
+if (!KEEP) {
+  gh(['issue', 'comment', String(n), '-R', R, '--body', `smoke テスト${failed ? 'は途中で止まりました' : '完了'}。このIssueは自動で閉じます。<!--idd:smoke-->`]);
+  gh(['issue', 'close', String(n), '-R', R]);
+  try { sh('git', ['push', 'origin', '--delete', `issue-${n}`]); log(`ブランチ issue-${n} を消した`); } catch {}
+  log(`#${n} を閉じた`);
+}
+process.exit(failed ? 1 : 0);

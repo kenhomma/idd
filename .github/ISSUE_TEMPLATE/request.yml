@@ -1,0 +1,48 @@
+# このリポジトリで唯一の依頼フォーム。付ける「依頼」ラベルが自動の対応案を起動する（ラベル名を変えるなら idd.yml も）。
+name: 📝 デモページの修正・改善の依頼
+description: 気づいたことを書くだけでOK。数分で対応案が返り、承認後に反映されます。
+labels: ["依頼"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **「どのページの」「何が」「どうなってほしいか」の3つが分かれば十分です。**
+        うまく説明できなくて大丈夫です。止めるくらいなら雑に出してください。
+        → [はじめての方へ（3分）](https://github.com/kenhomma/idd/blob/main/CONTRIBUTING.md)
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 種類
+      options:
+        - 不具合（表示が壊れている・違う）
+        - 内容の修正（文言・写真・情報が古い）
+        - 改善したい（こうなってほしい）
+        - 新しく作りたい（ページ・機能）
+        - その他
+    validations:
+      required: true
+  - type: input
+    id: page
+    attributes:
+      label: どのページですか
+      description: URLを貼ってください
+      placeholder: https://kenhomma.github.io/idd/
+    validations:
+      required: true
+  - type: textarea
+    id: detail
+    attributes:
+      label: 何が起きていますか / どうしたいですか
+      description: 見たまま・思ったままで大丈夫です
+    validations:
+      required: true
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: スクリーンショット（任意）
+      description: 画像はこの欄にドラッグ&ドロップで貼れます。文章より早く伝わります
+  - type: input
+    id: device
+    attributes:
+      label: 見ていた環境（任意・表示が崩れているときだけ）
+      placeholder: 例）iPhone Safari / Mac Chrome

@@ -1,0 +1,13 @@
+name: idd-watch
+on:
+  schedule:
+    - cron: '17 */2 * * *'
+  workflow_dispatch: {}
+jobs:
+  watch:
+    uses: kenhomma/idd/.github/workflows/watch.yml@main
+    permissions:
+      contents: read
+      issues: write
+    with:
+      approvers: ${{ vars.IDD_APPROVERS }}
