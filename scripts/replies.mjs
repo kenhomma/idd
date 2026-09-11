@@ -136,6 +136,8 @@ export function appendShots(issue, shots) {
   if (target.body.includes(shots[0].url)) return target.url;
   const imgs = shots.map((s) => `<img src="${s.url}" alt="${s.width}px" width="${s.width < 600 ? 260 : 620}">`).join(' ');
   const block = `**画面写真**（${shots.map((s) => `${s.width < 600 ? 'スマホ' : 'PC'} ${s.width}px`).join(' ／ ')}）\n\n${imgs}\n\n`;
-  editComment(target.id, target.body.replace(`<!--idd:${kindOf(target.body)}-->`, `${block}<!--idd:${kindOf(target.body)}-->`));
+  // 撮り直したときは古い写真の塊を置き換える（同じコメントに2組並べない）
+  const stripped = target.body.replace(/\*\*画面写真\*\*（[^\n]*）\n\n(?:<img [^\n]*>\s*)+\n\n/g, '');
+  editComment(target.id, stripped.replace(`<!--idd:${kindOf(target.body)}-->`, `${block}<!--idd:${kindOf(target.body)}-->`));
   return target.url;
 }
