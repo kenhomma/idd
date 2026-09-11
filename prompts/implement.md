@@ -21,6 +21,7 @@ Issue #{{ISSUE_NUMBER}}「{{ISSUE_TITLE}}」が承認されました（着手OK�
 
 ## 書き方（依頼者向け）
 - 1,200字まで。経緯・内部の設計は書かない。専門用語を使わない（使うなら平易語を先に）
+- 本文は **Write ツールで `/tmp/reply.md` に書いてから**コマンドに渡す（`--body-file`）。ヒアドキュメントで渡すなら `--body-file` の代わりに `--stdin`
 - **Issue への書き込みは `node .idd/scripts/reply.mjs` だけ**で行う（`gh issue comment` は使わない）
 
 ## してはいけないこと
