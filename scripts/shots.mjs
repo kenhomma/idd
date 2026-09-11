@@ -44,7 +44,7 @@ for (const w of widths) {
 // 置き場のブランチが無ければ main から作る（画像だけの履歴。PR には混ざらない）
 const R = repo();
 let exists = true;
-try { ghJson(['api', `repos/${R}/git/ref/heads/${branch}`]); } catch { exists = false; }
+try { ghJson(['api', `repos/${R}/git/ref/heads/${branch}`], { stdio: ['ignore', 'pipe', 'ignore'] }); } catch { exists = false; }
 if (!exists) {
   const sha = ghJson(['api', `repos/${R}/git/ref/heads/main`]).object.sha;
   gh(['api', '-X', 'POST', `repos/${R}/git/refs`, '-f', `ref=refs/heads/${branch}`, '-f', `sha=${sha}`]);
