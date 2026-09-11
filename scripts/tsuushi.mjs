@@ -34,9 +34,15 @@ const has = (n, kind, after) => () => {
 };
 
 // 1. 起票
+// ⚠ **毎回ちがう依頼にする。** 固定の依頼（「見出しを『こんにちは』に」）にしていたら、
+//   前回の通し確認で本番がそうなっており、エージェントが正しく「直す箇所がない」と答えて
+//   作業中の版を作らなかった（実測 2026-09-11・#11）。エンジンは正しいのに確認が通らない。
+//   刻んだ時刻を含む依頼にして、必ず実際の変更が要る形にする。
+const STAMP = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
 const body = ['どのページ: https://kenhomma.github.io/idd/', '',
-  '見出しの「ようこそ」を「こんにちは」に変えてください。', '', '（これは通し確認の依頼です。自動で閉じます）'].join('\n');
-const issueUrl = gh(['issue', 'create', '-R', R, '--title', '[通し確認] 見出しの文言を変えたい', '--label', LABELS.request, '--body', body]).trim();
+  `お知らせの一番上に「通し確認 ${STAMP} を実施しました」という項目を1つ足してください。`, '',
+  '（これは通し確認の依頼です。自動で閉じます）'].join('\n');
+const issueUrl = gh(['issue', 'create', '-R', R, '--title', `[通し確認] お知らせに1件足したい（${STAMP}）`, '--label', LABELS.request, '--body', body]).trim();
 const n = parseInt(issueUrl.split('/').pop(), 10);
 log(`起票 #${n} ${issueUrl}`);
 
@@ -54,7 +60,7 @@ if (plan) {
 // 3. 注文 → 改訂案 or 対応不要 など
 if (plan) {
   const at = new Date().toISOString();
-  gh(['issue', 'comment', String(n), '-R', R, '--body', '「こんにちは」ではなく「こんにちは！」（感嘆符つき）にしてください。']);
+  gh(['issue', 'comment', String(n), '-R', R, '--body', '「実施しました」ではなく「実施中です」にしてください。']);
   log('注文を書いた');
   await waitFor('受け取り（ack・2回目）', has(n, 'ack', at), 120);
   await waitFor('注文への返事（revise/done/noop/local）', () => {
