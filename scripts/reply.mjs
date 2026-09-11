@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // reply.mjs — Issue に返事を書く唯一の入口（CLI）
-//   node reply.mjs <kind> --issue N [--body-file f | --body-env VAR] [--url U] [--sender X] [--event opened|comment]
+//   node reply.mjs <kind> --issue N [--body-file f | --body-env VAR | --stdin] [--url U] [--sender X] [--event opened|comment]
 //                         [--what 説明] [--run-url U] [--pr-url U] [--members a,b]
 //   kind: ack | plan | revise | working | done | local | noop | guard | guard-merge | pr-missing | pr | released | stopped | nudge | append-url
 import { readFileSync } from 'node:fs';
-import { arg, isApprovalOnly } from './lib.mjs';
+import { arg, flag, isApprovalOnly } from './lib.mjs';
 import { send, appendUrl } from './replies.mjs';
 
 const kind = process.argv[2];
@@ -13,7 +13,9 @@ if (!kind || !issue) { console.error('usage: reply.mjs <kind> --issue N ...'); p
 
 const bodyFile = arg('--body-file');
 const bodyEnv = arg('--body-env');
-const body = bodyFile ? readFileSync(bodyFile, 'utf8') : bodyEnv ? (process.env[bodyEnv] || '') : '';
+const body = bodyFile ? readFileSync(bodyFile, 'utf8')
+  : bodyEnv ? (process.env[bodyEnv] || '')
+  : flag('--stdin') ? readFileSync(0, 'utf8') : '';
 
 if (kind === 'append-url') {
   const url = arg('--url');

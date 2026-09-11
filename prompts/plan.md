@@ -20,7 +20,7 @@ node .idd/scripts/reply.mjs plan --issue {{ISSUE_NUMBER}} --body-file /tmp/reply
 ## 手順
 1. `docs/ops/ISSUE-FLOW.md` があれば読む（触ってよい範囲・触ってはいけない範囲・対応案の粒度）。`CLAUDE.md` があればそれも読む
 2. 該当する箇所（ページ・ファイル）を見つけ、何をどう直すかを決める。分からない点は推測せず「確認したいこと」として列挙する
-3. 対応案を `/tmp/reply.md` に書き、上のコマンドで投稿する
+3. 対応案を **Write ツールで `/tmp/reply.md` に書き**、上のコマンドで投稿する（ヒアドキュメントで渡すなら `--body-file /tmp/reply.md` の代わりに `--stdin`）
 
 ## 対応案の書き方（依頼者向け）
 - **1,200字まで。** 経緯・試したこと・内部の設計は書かない

@@ -60,6 +60,7 @@ jobs:
       (github.event_name == 'issues' && github.event.action == 'opened'
         && contains(join(github.event.issue.labels.*.name, ','), inputs.request_label))
       || (github.event_name == 'issue_comment' && !github.event.issue.pull_request
+        && github.event.issue.state == 'open'
         && github.event.comment.user.type != 'Bot'
         && !contains(github.event.comment.body, '<!--cc-->')
         && !contains(github.event.comment.body, '@claude'))
@@ -118,10 +119,10 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: ${{ steps.p.outputs.prompt }}
-          # 対応案の段階は読み取りと「返事コマンド」だけ。書き込み系のツールは渡さない
+          # 対応案の段階は読み取り＋返事コマンド＋本文ファイルの Write だけ（このジョブは contents: read なので push できない）
           claude_args: >-
             --max-turns 30 ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
-            --allowedTools "Bash(node .idd/scripts/reply.mjs:*)" "Bash(gh issue view:*)" "Bash(ls:*)" "Bash(cat:*)"
+            --allowedTools "Bash(node .idd/scripts/reply.mjs:*)" "Bash(gh issue view:*)" "Bash(ls:*)" "Bash(cat:*)" "Write"
       - name: Issueが動いたか確かめる
         if: always()
         env:
@@ -158,6 +159,7 @@ jobs:
   feedback:
     if: >-
       github.event_name == 'issue_comment' && !github.event.issue.pull_request
+      && github.event.issue.state == 'open'
       && github.event.comment.user.type != 'Bot'
       && !contains(github.event.comment.body, '<!--cc-->')
       && !contains(github.event.comment.body, '@claude')
